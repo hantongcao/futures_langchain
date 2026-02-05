@@ -4,11 +4,14 @@ PDF 生成工具 - 将多个 Markdown 文件合并为 PDF
 import os
 import glob
 import re
+import logging
 from datetime import datetime
 from typing import List, Optional
 
 from markdown import markdown
 from fpdf import FPDF
+
+logger = logging.getLogger(__name__)
 
 
 class PDFGenerator:
@@ -135,10 +138,14 @@ class PDFGenerator:
             title: 标题
         """
         pdf = FPDF()
+        
+        # 设置页面边距（左右各 15mm）
+        pdf.set_left_margin(15)
+        pdf.set_right_margin(15)
+        
         pdf.add_page()
         
         # 添加中文字体支持
-        # 尝试使用系统字体
         font_added = False
         
         # Windows 常见中文字体路径
@@ -160,7 +167,6 @@ class PDFGenerator:
                     continue
         
         if not font_added:
-            # 如果没有找到中文字体，使用默认字体（英文显示正常，中文显示为方块）
             pdf.set_font('Arial', '', 12)
         else:
             pdf.set_font('CN', '', 12)
@@ -188,6 +194,9 @@ class PDFGenerator:
         else:
             pdf.set_font('Arial', '', 10)
         
+        # 获取可用宽度（页面宽度减去左右边距）
+        available_width = pdf.w - pdf.l_margin - pdf.r_margin
+        
         # 分行写入内容
         lines = content.split('\n')
         for line in lines:
@@ -203,14 +212,20 @@ class PDFGenerator:
                 else:
                     pdf.set_font('Arial', 'B', 14)
                 pdf.ln(5)
-                pdf.cell(0, 10, line, ln=True)
+                # 使用 available_width 而不是 0
+                pdf.multi_cell(available_width, 10, line, ln=True)
                 if font_added:
                     pdf.set_font('CN', '', 10)
                 else:
                     pdf.set_font('Arial', '', 10)
             else:
-                # 普通文本，自动换行
-                pdf.multi_cell(0, 6, line)
+                # 普通文本，自动换行，使用 available_width
+                try:
+                    pdf.multi_cell(available_width, 6, line, ln=True)
+                except Exception as e:
+                    # 如果某行出错，跳过该行
+                    logger.warning(f"PDF 写入行失败，跳过: {line[:50]}... 错误: {e}")
+                    continue
         
         # 保存 PDF
         pdf.output(output_path)
