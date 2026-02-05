@@ -9,6 +9,7 @@ from .file_saver import (
     save_bearish_to_markdown,
     save_summary_to_markdown
 )
+from .pdf_generator import generate_pdf_report, PDFGenerator
 
 __all__ = [
     'FuturesAnalyzer',
@@ -20,4 +21,6 @@ __all__ = [
     'save_bullish_to_markdown',
     'save_bearish_to_markdown',
     'save_summary_to_markdown',
+    'generate_pdf_report',
+    'PDFGenerator',
 ]

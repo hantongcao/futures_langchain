@@ -658,6 +658,41 @@ def generate_summary(state: FuturesAnalysisState):
         }
 
 
+def generate_pdf(state: FuturesAnalysisState):
+    """
+    PDF 生成节点
+    
+    将所有 Markdown 报告合并为 PDF
+    顺序：基本面 → 新闻 → 情绪 → 看涨 → 看跌 → 总结
+    """
+    logger.info("="*80)
+    logger.info("【步骤5】PDF 生成节点 (generate_pdf)")
+    logger.info("="*80)
+    logger.info(f"开始时间: {datetime.now().strftime('%H:%M:%S')}")
+    
+    try:
+        from tools import generate_pdf_report
+        
+        symbol = state['symbol']
+        logger.info(f"正在生成 {symbol.upper()} 的 PDF 综合报告...")
+        
+        pdf_path = generate_pdf_report(symbol)
+        
+        logger.info("="*80)
+        logger.info("【PDF 生成完成】")
+        logger.info(f"PDF 文件路径: {pdf_path}")
+        logger.info("="*80)
+        
+        return {"report_path": pdf_path}
+        
+    except Exception as e:
+        logger.error("【错误】PDF 生成失败")
+        logger.error(f"错误信息: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"errors": [f"PDF 生成出错: {e}"]}
+
+
 def end_workflow(state: FuturesAnalysisState):
     """
     工作流结束节点
@@ -726,6 +761,14 @@ def end_workflow(state: FuturesAnalysisState):
     else:
         logger.warning("  最终报告: 未生成")
     
+    # PDF 报告信息
+    report_path = state.get("report_path", "")
+    if report_path:
+        logger.info("  PDF 报告: 已生成")
+        logger.info(f"    文件路径: {report_path}")
+    else:
+        logger.warning("  PDF 报告: 未生成")
+    
     # 错误信息
     if state.get("errors"):
         logger.warning(f"【警告】执行过程中出现 {len(state['errors'])} 个错误:")
@@ -769,6 +812,7 @@ def create_workflow():
     workflow.add_node("bearish_agent", analyze_bearish)
     workflow.add_node("summary_agent", generate_summary)
     workflow.add_node("end", end_workflow)
+    workflow.add_node("generate_pdf", generate_pdf)
     
     # 添加汇聚节点（在边配置部分定义）
     # first_phase_join 和 second_phase_join 在下面的边配置中通过 add_node 添加
@@ -915,8 +959,9 @@ def create_workflow():
         }
     )
     
-    # summary完成后到end
-    workflow.add_edge("summary_agent", "end")
+    # summary完成后生成PDF，然后结束
+    workflow.add_edge("summary_agent", "generate_pdf")
+    workflow.add_edge("generate_pdf", "end")
     
     # 编译工作流
     return workflow.compile()
