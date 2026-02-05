@@ -15,6 +15,7 @@
 
 使用LangGraph的Send机制实现并行执行
 """
+from langgraph.types import Command
 import os
 from typing import TypedDict, Annotated, List, Dict, Any
 from datetime import datetime
@@ -796,14 +797,13 @@ def create_workflow():
         ["news_agent", "sentiment_agent", "fundamental_agent"]
     )
     
-    # 添加汇聚节点（用于判断是否可以进入下一阶段）
+    # 汇聚节点 - 只记录日志和更新状态，不进行路由
     def first_phase_join(state: FuturesAnalysisState):
         """
         第一阶段汇聚节点
         
-        等待三个基础Agent都完成后，触发第二阶段
+        记录三个基础Agent的完成状态
         """
-        # 检查三个Agent是否都完成了
         has_news = len(state.get("news_result", [])) > 0
         has_sentiment = len(state.get("sentiment_result", [])) > 0
         has_fundamental = len(state.get("fundamental_result", [])) > 0
@@ -813,55 +813,62 @@ def create_workflow():
         logger.info("="*80)
         logger.info(f"【第一阶段汇聚】检查完成状态: {completed}/3")
         logger.info(f"  新闻: {'✓' if has_news else '○'}, 情绪: {'✓' if has_sentiment else '○'}, 基本面: {'✓' if has_fundamental else '○'}")
+        logger.info("="*80)
         
-        # 只有当三个都完成时才触发第二阶段
+        # 返回状态更新，不在这里做路由决策
+        return {"first_phase_ready": has_news and has_sentiment and has_fundamental}
+    
+    # 第一阶段路由函数
+    def route_first_phase(state: FuturesAnalysisState):
+        """路由函数：检查第一阶段是否全部完成"""
+        has_news = len(state.get("news_result", [])) > 0
+        has_sentiment = len(state.get("sentiment_result", [])) > 0
+        has_fundamental = len(state.get("fundamental_result", [])) > 0
+        
         if has_news and has_sentiment and has_fundamental:
-            logger.info("【工作流分发】第一阶段全部完成，触发第二阶段！")
-            logger.info("="*80)
-            return "dispatch_second"  # 触发第二阶段分发
+            logger.info("【路由决策】第一阶段全部完成，分发到第二阶段！")
+            return "dispatch_second"
         else:
-            logger.info("【第一阶段汇聚】等待其他Agent完成，本次不触发后续...")
-            logger.info("="*80)
-            return "wait"  # 等待其他Agent
+            logger.info("【路由决策】第一阶段未完成，等待...")
+            return "wait"
+    
+    # 第二阶段分发函数
+    def dispatch_second_phase(state: FuturesAnalysisState):
+        """分发到两个观点分析师Agent"""
+        logger.info("="*80)
+        logger.info("【工作流分发】第二阶段：并行分发到观点分析师")
+        logger.info("="*80)
+        logger.info("目标节点: bullish_agent, bearish_agent")
+        logger.info(f"分发时间: {datetime.now().strftime('%H:%M:%S')}")
+        logger.info("="*80)
+        
+        return [
+            Send("bullish_agent", state),
+            Send("bearish_agent", state)
+        ]
     
     # 添加汇聚节点到工作流
     workflow.add_node("first_phase_join", first_phase_join)
-    workflow.add_node("dispatch_second", lambda state: [
-        Send("bullish_agent", state),
-        Send("bearish_agent", state)
-    ])
+    workflow.add_node("dispatch_second", dispatch_second_phase)
     
     # 三个Agent完成后都连接到汇聚节点
     workflow.add_edge("news_agent", "first_phase_join")
     workflow.add_edge("sentiment_agent", "first_phase_join")
     workflow.add_edge("fundamental_agent", "first_phase_join")
     
-    # 汇聚节点的条件边：如果完成则触发第二阶段，否则等待
+    # 汇聚节点通过条件边路由
     workflow.add_conditional_edges(
         "first_phase_join",
-        lambda state: "dispatch_second" if (
-            len(state.get("news_result", [])) > 0 and 
-            len(state.get("sentiment_result", [])) > 0 and 
-            len(state.get("fundamental_result", [])) > 0
-        ) else "wait",
+        route_first_phase,
         {
             "dispatch_second": "dispatch_second",
             "wait": END
         }
     )
     
-    # 第二阶段分发节点直接连接到两个Agent（通过Send在dispatch_second中实现）
-    # dispatch_second节点直接触发Send，不需要连接到具体节点
-    # 但需要让dispatch_second节点执行后有地方可去
-    workflow.add_edge("dispatch_second", "second_phase_join")
-    
-    # 添加第二阶段汇聚节点
+    # 第二阶段汇聚逻辑
     def second_phase_join(state: FuturesAnalysisState):
-        """
-        第二阶段汇聚节点
-        
-        等待两个观点分析师都完成后，触发汇总
-        """
+        """第二阶段汇聚节点"""
         has_bullish = len(state.get("bullish_result", [])) > 0
         has_bearish = len(state.get("bearish_result", [])) > 0
         
@@ -870,29 +877,34 @@ def create_workflow():
         logger.info("="*80)
         logger.info(f"【第二阶段汇聚】检查完成状态: {completed}/2")
         logger.info(f"  看涨: {'✓' if has_bullish else '○'}, 看跌: {'✓' if has_bearish else '○'}")
+        logger.info("="*80)
+        
+        return {"second_phase_ready": has_bullish and has_bearish}
+    
+    # 第二阶段路由函数
+    def route_second_phase(state: FuturesAnalysisState):
+        """路由函数：检查第二阶段是否全部完成"""
+        has_bullish = len(state.get("bullish_result", [])) > 0
+        has_bearish = len(state.get("bearish_result", [])) > 0
         
         if has_bullish and has_bearish:
-            logger.info("【工作流分发】第二阶段全部完成，触发汇总！")
-            logger.info("="*80)
-            return "summary"  # 触发汇总
+            logger.info("【路由决策】第二阶段全部完成，触发汇总！")
+            return "summary"
         else:
-            logger.info("【第二阶段汇聚】等待其他Agent完成，本次不触发后续...")
-            logger.info("="*80)
-            return "wait"  # 等待
+            logger.info("【路由决策】第二阶段未完成，等待...")
+            return "wait"
     
     workflow.add_node("second_phase_join", second_phase_join)
     
-    # 两个观点分析师完成后连接到汇聚节点
+    # dispatch_second分发后，两个Agent并行执行，完成后汇聚
+    workflow.add_edge("dispatch_second", "second_phase_join")
     workflow.add_edge("bullish_agent", "second_phase_join")
     workflow.add_edge("bearish_agent", "second_phase_join")
     
-    # 第二阶段汇聚节点的条件边
+    # 第二阶段汇聚后路由到汇总或结束
     workflow.add_conditional_edges(
         "second_phase_join",
-        lambda state: "summary" if (
-            len(state.get("bullish_result", [])) > 0 and 
-            len(state.get("bearish_result", [])) > 0
-        ) else "wait",
+        route_second_phase,
         {
             "summary": "summary_agent",
             "wait": END
