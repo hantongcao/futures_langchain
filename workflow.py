@@ -62,6 +62,8 @@ class FuturesAnalysisState(TypedDict):
     
     # 中间状态
     errors: Annotated[List[str], operator.add]  # 错误信息
+    first_phase_ready: bool  # 第一阶段是否完成
+    second_phase_ready: bool  # 第二阶段是否完成
     
     # 最终结果
     final_report: str  # 汇总报告
@@ -965,6 +967,8 @@ def analyze_futures(symbol: str, keyword: str = None) -> Dict[str, Any]:
         "bullish_result": [],
         "bearish_result": [],
         "errors": [],
+        "first_phase_ready": False,
+        "second_phase_ready": False,
         "final_report": "",
         "report_path": ""
     })
