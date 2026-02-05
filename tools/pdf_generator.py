@@ -58,22 +58,40 @@ class PDFGenerator:
         # 获取所有文件
         all_files = glob.glob(os.path.join(self.reports_dir, "*.md"))
         
+        # 按修改时间排序（最新的在前）
+        all_files.sort(key=os.path.getmtime, reverse=True)
+        
         # 按类型查找最新的文件
-        for file_path in sorted(all_files, key=os.path.getmtime, reverse=True):
+        # 使用时间窗口：只查找最近 10 分钟内生成的文件
+        current_time = datetime.now().timestamp()
+        time_window = 600  # 10 分钟 = 600 秒
+        
+        for file_path in all_files:
+            # 检查文件是否在时间窗口内
+            file_mtime = os.path.getmtime(file_path)
+            if current_time - file_mtime > time_window:
+                continue  # 跳过太旧的文件
+            
             basename = os.path.basename(file_path).lower()
             
-            if f"fundamental_{symbol.lower()}" in basename and files['fundamental'] is None:
+            # 更宽松的匹配：只检查前缀，不严格要求符号完全匹配
+            # 这样可以处理文件名中有特殊字符的情况
+            if files['fundamental'] is None and basename.startswith('fundamental_'):
                 files['fundamental'] = file_path
-            elif f"news_" in basename and files['news'] is None:
+            elif files['news'] is None and basename.startswith('news_'):
                 files['news'] = file_path
-            elif f"sentiment_" in basename and files['sentiment'] is None:
+            elif files['sentiment'] is None and basename.startswith('sentiment_'):
                 files['sentiment'] = file_path
-            elif f"bullish_{symbol.lower()}" in basename and files['bullish'] is None:
+            elif files['bullish'] is None and basename.startswith('bullish_'):
                 files['bullish'] = file_path
-            elif f"bearish_{symbol.lower()}" in basename and files['bearish'] is None:
+            elif files['bearish'] is None and basename.startswith('bearish_'):
                 files['bearish'] = file_path
-            elif f"summary_{symbol.lower()}" in basename and files['summary'] is None:
+            elif files['summary'] is None and basename.startswith('summary_'):
                 files['summary'] = file_path
+            
+            # 如果都找到了，提前退出
+            if all(files.values()):
+                break
         
         return files
     
@@ -247,12 +265,21 @@ class PDFGenerator:
         返回:
             str: 生成的 PDF 文件路径
         """
+        logger.info(f"【PDF 生成】开始查找 {symbol} 的报告文件...")
+        
         # 默认顺序：基本面 -> 新闻 -> 情绪 -> 看涨 -> 看跌 -> 总结
         if order is None:
             order = ['fundamental', 'news', 'sentiment', 'bullish', 'bearish', 'summary']
         
         # 查找最新文件
         files = self.find_latest_files(symbol)
+        
+        # 记录查找结果
+        for section, path in files.items():
+            if path:
+                logger.info(f"  ✓ {section}: {os.path.basename(path)}")
+            else:
+                logger.warning(f"  ✗ {section}: 未找到")
         
         # 构建完整内容
         full_content = ""
