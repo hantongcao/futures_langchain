@@ -834,38 +834,41 @@ def create_workflow():
             logger.info("【路由决策】第一阶段未完成，等待...")
             return "wait"
     
-    # 第二阶段分发函数
-    def dispatch_second_phase(state: FuturesAnalysisState):
-        """分发到两个观点分析师Agent"""
-        logger.info("="*80)
-        logger.info("【工作流分发】第二阶段：并行分发到观点分析师")
-        logger.info("="*80)
-        logger.info("目标节点: bullish_agent, bearish_agent")
-        logger.info(f"分发时间: {datetime.now().strftime('%H:%M:%S')}")
-        logger.info("="*80)
-        
-        return [
-            Send("bullish_agent", state),
-            Send("bearish_agent", state)
-        ]
-    
     # 添加汇聚节点到工作流
     workflow.add_node("first_phase_join", first_phase_join)
-    workflow.add_node("dispatch_second", dispatch_second_phase)
     
     # 三个Agent完成后都连接到汇聚节点
     workflow.add_edge("news_agent", "first_phase_join")
     workflow.add_edge("sentiment_agent", "first_phase_join")
     workflow.add_edge("fundamental_agent", "first_phase_join")
     
-    # 汇聚节点通过条件边路由
+    # 汇聚节点通过条件边路由，使用Send直接分发到第二阶段Agent
+    def route_and_dispatch_second(state: FuturesAnalysisState):
+        """路由函数：检查第一阶段是否全部完成，如果完成则分发到第二阶段"""
+        has_news = len(state.get("news_result", [])) > 0
+        has_sentiment = len(state.get("sentiment_result", [])) > 0
+        has_fundamental = len(state.get("fundamental_result", [])) > 0
+        
+        if has_news and has_sentiment and has_fundamental:
+            logger.info("="*80)
+            logger.info("【工作流分发】第一阶段全部完成，分发到第二阶段！")
+            logger.info("="*80)
+            logger.info("目标节点: bullish_agent, bearish_agent")
+            logger.info(f"分发时间: {datetime.now().strftime('%H:%M:%S')}")
+            logger.info("="*80)
+            # 使用Send直接分发到第二阶段Agent
+            return [
+                Send("bullish_agent", state),
+                Send("bearish_agent", state)
+            ]
+        else:
+            logger.info("【路由决策】第一阶段未完成，等待...")
+            return END
+    
     workflow.add_conditional_edges(
         "first_phase_join",
-        route_first_phase,
-        {
-            "dispatch_second": "dispatch_second",
-            "wait": END
-        }
+        route_and_dispatch_second,
+        ["bullish_agent", "bearish_agent", END]
     )
     
     # 第二阶段汇聚逻辑
@@ -898,8 +901,7 @@ def create_workflow():
     
     workflow.add_node("second_phase_join", second_phase_join)
     
-    # dispatch_second分发后，两个Agent并行执行，完成后汇聚
-    workflow.add_edge("dispatch_second", "second_phase_join")
+    # 两个观点分析师完成后汇聚
     workflow.add_edge("bullish_agent", "second_phase_join")
     workflow.add_edge("bearish_agent", "second_phase_join")
     
